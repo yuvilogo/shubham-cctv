@@ -368,6 +368,11 @@
   z-index: 0;
 }
 
+.hero3d-host {
+  position: absolute;
+  inset: 0;
+}
+
 /* Scrim between the 3D layer and the copy. The hero copy spans almost
    the full viewport on phones, so the model has to sit behind a veil
    there; on wide screens the copy is left-aligned and the model owns

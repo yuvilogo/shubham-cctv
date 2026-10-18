@@ -10,7 +10,7 @@ const CHANNELS = [
 ]
 
 export default function FeedWall() {
-  const now = useClock()
+  const now = useClock(1000)
   const [focus, setFocus] = useState(0)
   const [mounted, setMounted] = useState(false)
 

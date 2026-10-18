@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 
 const PALETTES = [
   // daytime colour, cyan tint
@@ -40,7 +40,7 @@ const PALETTES = [
  * figures, motion bloom, IR grain, a rolling scan bar and vignette.
  * Purely generated — no video files, so it stays weightless.
  */
-export default function FeedCanvas({ variant = 0, active = true }) {
+export default memo(function FeedCanvas({ variant = 0, active = true }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -52,31 +52,12 @@ export default function FeedCanvas({ variant = 0, active = true }) {
     let raf
     let w = 0
     let h = 0
-
-    const resize = () => {
-      const rect = canvas.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
-      w = Math.max(1, Math.floor(rect.width))
-      h = Math.max(1, Math.floor(rect.height))
-      canvas.width = Math.floor(w * dpr)
-      canvas.height = Math.floor(h * dpr)
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    }
-
-    resize()
-    const ro = new ResizeObserver(resize)
-    ro.observe(canvas)
-
-    // Four feeds animate at once; stopping the ones scrolled out of view
-    // keeps the section from burning a phone's battery.
-    let onScreen = true
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        onScreen = entry.isIntersecting
-      },
-      { rootMargin: '120px' },
-    )
-    io.observe(canvas)
+    let dpr = 1
+    // Sky, ground, silhouettes, grid, scanlines and vignette never change
+    // between frames. Painting them once into an offscreen layer and
+    // blitting it is far cheaper than re-allocating six gradients and
+    // stroking the grid on every tick of every tile.
+    let base = null
 
     const pal = PALETTES[variant % PALETTES.length]
     const horizon = 0.58
@@ -94,64 +75,118 @@ export default function FeedCanvas({ variant = 0, active = true }) {
       h: 0.1 + ((i * 3) % 4) * 0.06,
     }))
 
-    const draw = (t) => {
-      raf = requestAnimationFrame(draw)
-      if (!active || !onScreen) return
-      const time = t / 1000
+    const paintBase = () => {
+      const off = document.createElement('canvas')
+      off.width = canvas.width
+      off.height = canvas.height
+      const c = off.getContext('2d')
+      c.setTransform(dpr, 0, 0, dpr, 0, 0)
       const hy = h * horizon
 
-      // sky
-      const sky = ctx.createLinearGradient(0, 0, 0, hy)
+      const sky = c.createLinearGradient(0, 0, 0, hy)
       sky.addColorStop(0, pal.sky[0])
       sky.addColorStop(1, pal.sky[1])
-      ctx.fillStyle = sky
-      ctx.fillRect(0, 0, w, hy)
+      c.fillStyle = sky
+      c.fillRect(0, 0, w, hy)
 
-      // ground
-      const grd = ctx.createLinearGradient(0, hy, 0, h)
+      const grd = c.createLinearGradient(0, hy, 0, h)
       grd.addColorStop(0, pal.ground[0])
       grd.addColorStop(1, pal.ground[1])
-      ctx.fillStyle = grd
-      ctx.fillRect(0, hy, w, h - hy)
+      c.fillStyle = grd
+      c.fillRect(0, hy, w, h - hy)
 
-      // structure silhouettes
       blocks.forEach((b) => {
         const bh = b.h * h
-        ctx.fillStyle = 'rgba(0,0,0,0.35)'
-        ctx.fillRect(b.x * w, hy - bh, b.w * w, bh)
-        ctx.strokeStyle = pal.grid
-        ctx.lineWidth = 1
-        ctx.strokeRect(b.x * w, hy - bh, b.w * w, bh)
+        c.fillStyle = 'rgba(0,0,0,0.35)'
+        c.fillRect(b.x * w, hy - bh, b.w * w, bh)
+        c.strokeStyle = pal.grid
+        c.lineWidth = 1
+        c.strokeRect(b.x * w, hy - bh, b.w * w, bh)
       })
 
-      // perspective ground grid
-      ctx.strokeStyle = pal.grid
-      ctx.lineWidth = 1
+      c.strokeStyle = pal.grid
+      c.lineWidth = 1
       for (let i = 0; i <= 10; i += 1) {
         const gx = (i / 10) * w
-        ctx.beginPath()
-        ctx.moveTo(w / 2 + (gx - w / 2) * 0.12, hy)
-        ctx.lineTo(gx, h)
-        ctx.stroke()
+        c.beginPath()
+        c.moveTo(w / 2 + (gx - w / 2) * 0.12, hy)
+        c.lineTo(gx, h)
+        c.stroke()
       }
       for (let i = 1; i <= 5; i += 1) {
         const gy = hy + (h - hy) * (i / 5) ** 1.7
-        ctx.beginPath()
-        ctx.moveTo(0, gy)
-        ctx.lineTo(w, gy)
-        ctx.stroke()
+        c.beginPath()
+        c.moveTo(0, gy)
+        c.lineTo(w, gy)
+        c.stroke()
       }
 
-      // horizon line
-      ctx.strokeStyle = 'rgba(255,255,255,0.22)'
-      ctx.beginPath()
-      ctx.moveTo(0, hy)
-      ctx.lineTo(w, hy)
-      ctx.stroke()
+      c.strokeStyle = 'rgba(255,255,255,0.22)'
+      c.beginPath()
+      c.moveTo(0, hy)
+      c.lineTo(w, hy)
+      c.stroke()
 
-      // figures
+      c.fillStyle = 'rgba(0,0,0,0.1)'
+      for (let y = 0; y < h; y += 3) c.fillRect(0, y, w, 1)
+
+      const v = c.createRadialGradient(
+        w / 2,
+        h / 2,
+        Math.min(w, h) * 0.22,
+        w / 2,
+        h / 2,
+        Math.max(w, h) * 0.72,
+      )
+      v.addColorStop(0, 'rgba(0,0,0,0)')
+      v.addColorStop(1, 'rgba(0,0,0,0.6)')
+      c.fillStyle = v
+      c.fillRect(0, 0, w, h)
+
+      base = off
+    }
+
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect()
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+      w = Math.max(1, Math.floor(rect.width))
+      h = Math.max(1, Math.floor(rect.height))
+      canvas.width = Math.floor(w * dpr)
+      canvas.height = Math.floor(h * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      paintBase()
+    }
+
+    resize()
+    const ro = new ResizeObserver(resize)
+    ro.observe(canvas)
+
+    // Four feeds animate at once; stopping the ones scrolled out of view
+    // keeps the section from burning a phone's battery.
+    let onScreen = true
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        onScreen = entry.isIntersecting
+      },
+      { rootMargin: '120px' },
+    )
+    io.observe(canvas)
+
+    const FRAME = 1000 / 30
+    let last = 0
+
+    const draw = (t) => {
+      raf = requestAnimationFrame(draw)
+      if (!active || !onScreen || !base) return
+      if (t - last < FRAME) return
+      last = t
+      const time = t / 1000
+      const hy = h * horizon
+
+      ctx.drawImage(base, 0, 0, w, h)
+
       figures.forEach((f) => {
-        f.x += f.speed / 60
+        f.x += f.speed / 30
         if (f.x > 1.12) f.x = -0.12
         if (f.x < -0.12) f.x = 1.12
         const bob = Math.sin(time * 5.5 + f.bob) * 0.008
@@ -192,31 +227,13 @@ export default function FeedCanvas({ variant = 0, active = true }) {
       ctx.fillRect(0, barY - 30, w, 60)
 
       // grain
-      const grainCount = Math.floor((w * h) / 1400)
+      const grainCount = Math.floor((w * h) / 2600)
       for (let i = 0; i < grainCount; i += 1) {
         const gx = Math.random() * w
         const gy = Math.random() * h
         ctx.fillStyle = `rgba(255,255,255,${0.03 + Math.random() * 0.05})`
         ctx.fillRect(gx, gy, 1, 1)
       }
-
-      // scanlines
-      ctx.fillStyle = 'rgba(0,0,0,0.1)'
-      for (let y = 0; y < h; y += 3) ctx.fillRect(0, y, w, 1)
-
-      // vignette
-      const v = ctx.createRadialGradient(
-        w / 2,
-        h / 2,
-        Math.min(w, h) * 0.22,
-        w / 2,
-        h / 2,
-        Math.max(w, h) * 0.72,
-      )
-      v.addColorStop(0, 'rgba(0,0,0,0)')
-      v.addColorStop(1, 'rgba(0,0,0,0.6)')
-      ctx.fillStyle = v
-      ctx.fillRect(0, 0, w, h)
     }
 
     raf = requestAnimationFrame(draw)
@@ -224,8 +241,9 @@ export default function FeedCanvas({ variant = 0, active = true }) {
       cancelAnimationFrame(raf)
       ro.disconnect()
       io.disconnect()
+      base = null
     }
   }, [variant, active])
 
   return <canvas ref={ref} className="feed__canvas" aria-hidden="true" />
-}
+})

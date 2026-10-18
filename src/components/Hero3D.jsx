@@ -128,7 +128,7 @@ function Floor() {
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[80, 80]} />
         <MeshReflectorMaterial
-          resolution={1024}
+          resolution={256}
           mixBlur={1.2}
           mixStrength={22}
           roughness={0.85}
@@ -138,7 +138,7 @@ function Floor() {
           color="#0a0d12"
           metalness={0.7}
           mirror={0.5}
-          blur={[400, 120]}
+          blur={[180, 60]}
         />
       </mesh>
       <gridHelper
@@ -174,7 +174,8 @@ function SceneContent() {
         intensity={85}
         color="#cfe6ff"
         castShadow
-        shadow-mapSize={[1024, 1024]}
+        shadow-mapSize={[512, 512]}
+        shadow-bias={-0.0006}
       />
       <spotLight position={[-8, 4, -2]} angle={0.65} penumbra={1} intensity={45} color="#ff6a4a" />
       <pointLight position={[2.5, -1.6, 4]} intensity={16} color="#38d6ff" />
@@ -196,8 +197,9 @@ function SceneContent() {
           position={[0, -2.45, 0]}
           opacity={0.5}
           scale={26}
-          blur={2.8}
+          blur={2.4}
           far={9}
+          resolution={256}
           color="#000000"
         />
       </Rig>
@@ -242,6 +244,8 @@ function SceneContent() {
 
 export default function Hero3D() {
   const [supported, setSupported] = useState(true)
+  const host = useRef(null)
+  const [inView, setInView] = useState(true)
 
   useEffect(() => {
     try {
@@ -256,6 +260,21 @@ export default function Hero3D() {
     }
   }, [])
 
+  // The hero is one screen tall: once it scrolls away the WebGL loop keeps
+  // re-rendering off-screen forever, which is what made the rest of the
+  // page feel sticky. Parking the loop while it is out of view costs
+  // nothing visually and gives the frame budget back to scrolling.
+  useEffect(() => {
+    const node = host.current
+    if (!node || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(
+      ([entry]) => setInView(entry.isIntersecting),
+      { rootMargin: '80px' },
+    )
+    io.observe(node)
+    return () => io.disconnect()
+  }, [supported])
+
   if (!supported) {
     return (
       <div className="hero3d-fallback">
@@ -265,19 +284,22 @@ export default function Hero3D() {
   }
 
   return (
-    <Canvas
-      dpr={[1, 1.75]}
-      shadows
-      gl={{ antialias: true, powerPreference: 'high-performance', alpha: false }}
-      camera={{ position: [0, 0.1, 6.1], fov: 32, near: 0.1, far: 80 }}
-      onCreated={({ gl }) => {
-        gl.toneMapping = THREE.ACESFilmicToneMapping
-        gl.toneMappingExposure = 0.92
-      }}
-    >
-      <Suspense fallback={null}>
-        <SceneContent />
-      </Suspense>
-    </Canvas>
+    <div ref={host} className="hero3d-host">
+      <Canvas
+        dpr={[1, 1.5]}
+        shadows
+        frameloop={inView ? 'always' : 'demand'}
+        gl={{ antialias: true, powerPreference: 'high-performance', alpha: false }}
+        camera={{ position: [0, 0.1, 6.1], fov: 32, near: 0.1, far: 80 }}
+        onCreated={({ gl }) => {
+          gl.toneMapping = THREE.ACESFilmicToneMapping
+          gl.toneMappingExposure = 0.92
+        }}
+      >
+        <Suspense fallback={null}>
+          <SceneContent />
+        </Suspense>
+      </Canvas>
+    </div>
   )
 }

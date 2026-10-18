@@ -53,29 +53,40 @@ export function useReveal(options = {}) {
 }
 
 export function useScrollProgress() {
-  const [progress, setProgress] = useState(0)
+  const ref = useRef(null)
   useEffect(() => {
-    const onScroll = () => {
+    const node = ref.current
+    if (!node) return
+    let raf = 0
+    // Writing the scale straight to the node keeps a scroll from
+    // re-rendering the header (and its links) on every frame.
+    const apply = () => {
+      raf = 0
       const height = document.documentElement.scrollHeight - window.innerHeight
-      setProgress(height > 0 ? Math.min(1, Math.max(0, window.scrollY / height)) : 0)
+      const p = height > 0 ? Math.min(1, Math.max(0, window.scrollY / height)) : 0
+      node.style.transform = `scaleX(${p})`
     }
-    onScroll()
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(apply)
+    }
+    apply()
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', onScroll)
     return () => {
+      if (raf) cancelAnimationFrame(raf)
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('resize', onScroll)
     }
   }, [])
-  return progress
+  return ref
 }
 
-export function useClock() {
+export function useClock(intervalMs = 1000) {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000)
+    const id = setInterval(() => setNow(new Date()), intervalMs)
     return () => clearInterval(id)
-  }, [])
+  }, [intervalMs])
   return now
 }
 

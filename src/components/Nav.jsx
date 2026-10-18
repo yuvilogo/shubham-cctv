@@ -13,8 +13,8 @@ const LINKS = [
 export default function Nav() {
   const [open, setOpen] = useState(false)
   const [solid, setSolid] = useState(false)
-  const progress = useScrollProgress()
-  const now = useClock()
+  const progressRef = useScrollProgress()
+  const now = useClock(30000)
 
   useEffect(() => {
     const onScroll = () => setSolid(window.scrollY > 40)
@@ -34,7 +34,6 @@ export default function Nav() {
     hour12: false,
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
   })
 
   return (
@@ -79,7 +78,7 @@ export default function Nav() {
           </div>
         </div>
         <div className="nav__progress">
-          <span style={{ transform: `scaleX(${progress})` }} />
+          <span ref={progressRef} />
         </div>
       </header>
 
